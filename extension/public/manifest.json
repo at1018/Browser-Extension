@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "AI Visual Copilot",
+  "short_name": "Visual Copilot",
+  "version": "0.1.0",
+  "description": "A screenshot-aware Chrome extension for persona-aware AI workflows.",
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "clipboardRead"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "AI Visual Copilot"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["contentScript.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
