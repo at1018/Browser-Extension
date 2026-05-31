@@ -10,7 +10,7 @@ from typing import Any, Dict, Optional
 from app.providers.base_provider import BaseProvider
 
 try:
-    from google import generativeai as genai
+    import google.generativeai as genai
     GENAI_AVAILABLE = True
 except ImportError:
     genai = None  # type: ignore[assignment]
@@ -27,7 +27,7 @@ class GeminiProvider(BaseProvider):
         timeout_seconds: int = 30,
         retry_attempts: int = 2,
         retry_backoff: float = 1.0,
-    ): 
+    ):
         self.api_key = api_key or os.environ.get('GEMINI_API_KEY')
         self.model = model or os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash')
         self.timeout_seconds = timeout_seconds
@@ -35,7 +35,10 @@ class GeminiProvider(BaseProvider):
         self.retry_backoff = retry_backoff
 
         if self.api_key and GENAI_AVAILABLE:
-            genai.configure(api_key=self.api_key)
+            try:
+                genai.configure(api_key=self.api_key)
+            except Exception as exc:
+                logger.warning('Gemini configuration failed: %s', exc)
 
     @staticmethod
     def _build_data_url(image_bytes: bytes) -> str:
@@ -61,6 +64,8 @@ class GeminiProvider(BaseProvider):
     def _get_response_text(response: Any) -> str:
         if response is None:
             return ''
+        if hasattr(response, 'text'):
+            return getattr(response, 'text') or ''
         if hasattr(response, 'output_text'):
             return getattr(response, 'output_text') or ''
         if hasattr(response, 'output'):
@@ -116,25 +121,56 @@ class GeminiProvider(BaseProvider):
         raise last_error or RuntimeError('GeminiProvider failed without exception')
 
     def _prepare_input(self, prompt: str, image_data_url: Optional[str] = None) -> Any:
+        # For Gemini SDK we construct parts compatible with genai.types
+        # When provided with raw image bytes (or a data URL), create an inline blob dict
         if image_data_url:
+            # Accept raw bytes or data URL strings
+            if isinstance(image_data_url, (bytes, bytearray)):
+                image_bytes = bytes(image_data_url)
+            elif isinstance(image_data_url, str) and image_data_url.startswith('data:'):
+                try:
+                    _, encoded = image_data_url.split(',', 1)
+                    import base64 as _b64
+
+                    image_bytes = _b64.b64decode(encoded)
+                except Exception:
+                    image_bytes = image_data_url.encode('utf-8')
+            else:
+                image_bytes = image_data_url
+
+            # Try to guess mime type from header bytes
+            mime = 'application/octet-stream'
+            try:
+                if isinstance(image_bytes, (bytes, bytearray)):
+                    if image_bytes[:4].startswith(b'\x89PNG'):
+                        mime = 'image/png'
+                    elif image_bytes[:3] == b"\xff\xd8\xff":
+                        mime = 'image/jpeg'
+            except Exception:
+                pass
+
+            # Construct a content dict using 'parts' where inline_data is a blob dict
             return [
                 {
-                    'role': 'user',
-                    'content': [
-                        {'type': 'image', 'image_url': image_data_url},
-                        {'type': 'text', 'text': prompt},
-                    ],
+                    'parts': [
+                        {'inline_data': {'mime_type': mime, 'data': image_bytes}},
+                        {'text': prompt},
+                    ]
                 }
             ]
         return prompt
 
-    def _generate_sync(self, prompt: str, image_data_url: Optional[str] = None) -> Any:
+    def _build_model(self) -> Any:
         if not GENAI_AVAILABLE:
             raise RuntimeError('google.generativeai SDK is not installed')
-        return genai.responses.generate(
-            model=self.model,
-            input=self._prepare_input(prompt, image_data_url),
-            temperature=0.2,
+        return genai.GenerativeModel(self.model)
+
+    def _generate_sync(self, prompt: str, image_bytes: Optional[bytes] = None) -> Any:
+        model = self._build_model()
+        contents = self._prepare_input(prompt, image_bytes)
+        return model.generate_content(
+            contents,
+            generation_config={'temperature': 0.2},
         )
 
     async def analyze_image(self, image_bytes: bytes, meta: Dict[str, Any] | None = None) -> Dict[str, Any]:
@@ -154,14 +190,14 @@ class GeminiProvider(BaseProvider):
                 'raw': {},
             }
 
-        data_url = self._build_data_url(image_bytes)
         prompt = (
             'Analyze the screenshot. Return only valid JSON with keys: caption, labels, objects, text, suggested_actions, reasoning. '
             'The text key should contain full_text and blocks, and labels should be a short list of detected concepts.'
         )
 
         try:
-            response = await self._execute_with_retry(self._generate_sync, prompt, data_url)
+            # Pass raw bytes directly; _prepare_input will convert to an inline blob dict
+            response = await self._execute_with_retry(self._generate_sync, prompt, image_bytes)
             raw_text = self._get_response_text(response)
             parsed = self._parse_json_response(raw_text)
             parsed.setdefault('provider', 'gemini')

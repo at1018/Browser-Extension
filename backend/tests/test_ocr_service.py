@@ -12,6 +12,7 @@ from app.ocr.ocr_service import OCRService
 def make_text_image(text: str = 'Hello 123'):
     img = Image.new('RGB', (200, 60), color=(255, 255, 255))
     from PIL import ImageDraw, ImageFont
+
     draw = ImageDraw.Draw(img)
     try:
         font = ImageFont.load_default()
@@ -38,8 +39,17 @@ def test_ocrservice_extract_runs():
 def test_ocrservice_with_preprocessing():
     pytest.importorskip('pytesseract')
     pytest.importorskip('PIL')
-    # cv2 is optional
     img_b64 = make_text_image('Preprocess Test')
     res = OCRService.extract_from_base64(img_b64, preprocess=True)
     assert isinstance(res, dict)
     assert 'extracted_text' in res
+
+
+def test_ocrservice_diagnose_returns_expected_keys():
+    diag = OCRService.diagnose()
+    assert isinstance(diag, dict)
+    assert 'pytesseract_installed' in diag
+    assert 'tesseract_cmd' in diag
+    assert 'tesseract_available' in diag
+    assert 'pillow_installed' in diag
+    assert 'opencv_installed' in diag

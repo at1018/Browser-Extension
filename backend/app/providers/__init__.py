@@ -12,16 +12,16 @@ def get_provider() -> BaseProvider:
     provider_name = os.environ.get('PROVIDER', settings.model_provider).lower()
     if provider_name == 'gemini':
         return GeminiProvider(
-            api_key=settings.gemini_api_key,
-            model=settings.gemini_model,
+            api_key=settings.GEMINI_API_KEY,
+            model=settings.GEMINI_MODEL,
             timeout_seconds=settings.gemini_timeout_seconds,
             retry_attempts=settings.gemini_retry_attempts,
             retry_backoff=settings.gemini_retry_backoff,
         )
     # Future providers can be wired here
     return GeminiProvider(
-        api_key=settings.gemini_api_key,
-        model=settings.gemini_model,
+        api_key=settings.GEMINI_API_KEY,
+        model=settings.GEMINI_MODEL,
         timeout_seconds=settings.gemini_timeout_seconds,
         retry_attempts=settings.gemini_retry_attempts,
         retry_backoff=settings.gemini_retry_backoff,

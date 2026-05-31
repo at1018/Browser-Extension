@@ -1,6 +1,8 @@
 import base64
+import importlib.util
 import io
 import logging
+import os
 from typing import Dict, Any, List, Tuple, Optional
 
 from PIL import Image, UnidentifiedImageError, ImageOps
@@ -10,6 +12,8 @@ try:
     from pytesseract import Output
     TESSERACT_AVAILABLE = True
 except Exception:
+    pytesseract = None  # type: ignore[assignment]
+    Output = None  # type: ignore[assignment]
     TESSERACT_AVAILABLE = False
 
 try:
@@ -17,7 +21,11 @@ try:
     import numpy as np
     CV2_AVAILABLE = True
 except Exception:
+    cv2 = None  # type: ignore[assignment]
+    np = None  # type: ignore[assignment]
     CV2_AVAILABLE = False
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -37,35 +45,56 @@ class OCRService:
 
     Public methods:
     - `extract_from_base64(data_url, preprocess=True)` -> structured result
+    - `diagnose()` -> environment diagnostics
     """
 
     @staticmethod
     def _preprocess_pil(img: Image.Image, use_cv: bool = True) -> Image.Image:
-        # Convert to grayscale
         img = ImageOps.grayscale(img)
 
-        if use_cv and CV2_AVAILABLE:
-            # Convert to OpenCV image
+        if use_cv and CV2_AVAILABLE and np is not None:
             arr = np.array(img)
-            # Noise reduction
             arr = cv2.fastNlMeansDenoising(arr, None, h=10)
-            # Contrast enhancement via CLAHE
             clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
             arr = clahe.apply(arr)
-            # Adaptive thresholding
-            arr = cv2.adaptiveThreshold(arr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                        cv2.THRESH_BINARY, 11, 2)
+            arr = cv2.adaptiveThreshold(arr, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
             return Image.fromarray(arr)
 
-        # Fallback simple enhancements with Pillow
-        img = ImageOps.autocontrast(img)
-        return img
+        return ImageOps.autocontrast(img)
+
+    @staticmethod
+    def _get_tesseract_cmd() -> Optional[str]:
+        if TESSERACT_AVAILABLE and pytesseract is not None:
+            try:
+                return getattr(pytesseract.pytesseract, 'tesseract_cmd', None)
+            except Exception:
+                return None
+        return os.environ.get('TESSERACT_CMD')
+
+    @staticmethod
+    def _configure_tesseract() -> None:
+        if TESSERACT_AVAILABLE and pytesseract is not None and settings.tesseract_cmd:
+            try:
+                pytesseract.pytesseract.tesseract_cmd = settings.tesseract_cmd
+            except Exception:
+                logger.exception('Failed to configure pytesseract.tesseract_cmd')
+
+    @staticmethod
+    def _probe_tesseract_version() -> Optional[str]:
+        if not TESSERACT_AVAILABLE or pytesseract is None:
+            return None
+        try:
+            return str(pytesseract.get_tesseract_version())
+        except Exception as exc:
+            logger.warning('Unable to probe Tesseract version: %s', exc)
+            return None
 
     @staticmethod
     def _extract_with_tesseract(img: Image.Image, lang: str = 'eng') -> Tuple[str, List[Dict[str, Any]]]:
-        if not TESSERACT_AVAILABLE:
+        if not TESSERACT_AVAILABLE or pytesseract is None or Output is None:
             raise RuntimeError('pytesseract or Tesseract not available')
 
+        OCRService._configure_tesseract()
         text = pytesseract.image_to_string(img, lang=lang)
         data = pytesseract.image_to_data(img, output_type=Output.DICT)
 
@@ -84,29 +113,33 @@ class OCRService:
                 except Exception:
                     conf = -1.0
 
-            box = {
-                'text': txt,
-                'left': int(data.get('left', [0])[i]),
-                'top': int(data.get('top', [0])[i]),
-                'width': int(data.get('width', [0])[i]),
-                'height': int(data.get('height', [0])[i]),
-                'confidence': conf,
-            }
-            boxes.append(box)
+            boxes.append(
+                {
+                    'text': txt,
+                    'left': int(data.get('left', [0])[i]),
+                    'top': int(data.get('top', [0])[i]),
+                    'width': int(data.get('width', [0])[i]),
+                    'height': int(data.get('height', [0])[i]),
+                    'confidence': conf,
+                }
+            )
 
         return text, boxes
 
     @classmethod
-    def extract_from_base64(cls, data_url: str, lang: str = 'eng', preprocess: bool = True) -> Dict[str, Any]:
-        """Full OCR pipeline entrypoint.
+    def diagnose(cls) -> Dict[str, Any]:
+        return {
+            'pytesseract_installed': importlib.util.find_spec('pytesseract') is not None,
+            'tesseract_cmd': cls._get_tesseract_cmd(),
+            'tesseract_available': cls._probe_tesseract_version() is not None,
+            'tesseract_version': cls._probe_tesseract_version(),
+            'pillow_installed': importlib.util.find_spec('PIL') is not None,
+            'opencv_installed': importlib.util.find_spec('cv2') is not None,
+            'configured_tesseract_cmd': settings.tesseract_cmd,
+        }
 
-        Steps:
-        - decode base64
-        - open image
-        - optional preprocessing (OpenCV/Pillow)
-        - run Tesseract OCR
-        - compute overall confidence and return structured output
-        """
+    @classmethod
+    def extract_from_base64(cls, data_url: str, lang: str = 'eng', preprocess: bool = True) -> Dict[str, Any]:
         try:
             raw = _decode_data_url(data_url)
             img = Image.open(io.BytesIO(raw)).convert('RGB')
@@ -123,18 +156,20 @@ class OCRService:
             except Exception:
                 logger.exception('Preprocessing failed; continuing with original image')
 
-        if not TESSERACT_AVAILABLE:
+        if not TESSERACT_AVAILABLE or pytesseract is None:
             logger.warning('pytesseract not available; returning placeholder result')
             return {
                 'extracted_text': '',
                 'confidence': 0.0,
                 'bounding_boxes': [],
-                'metadata': {'note': 'pytesseract missing'},
+                'metadata': {
+                    'note': 'pytesseract missing',
+                    'tesseract_cmd': cls._get_tesseract_cmd(),
+                },
             }
 
         try:
             text, boxes = cls._extract_with_tesseract(img, lang=lang)
-            # Compute average confidence across boxes that have non-negative confidence
             confs = [b.get('confidence', -1.0) for b in boxes if b.get('confidence', -1.0) >= 0]
             avg_conf = float(sum(confs) / len(confs)) if confs else 0.0
 
@@ -146,8 +181,23 @@ class OCRService:
                     'engine': 'pytesseract',
                     'preprocessing': 'opencv' if CV2_AVAILABLE else 'pillow',
                     'box_count': len(boxes),
+                    'tesseract_cmd': cls._get_tesseract_cmd(),
+                    'tesseract_version': cls._probe_tesseract_version(),
                 },
             }
-        except Exception:
+        except Exception as exc:
             logger.exception('OCR execution failed')
-            return {'extracted_text': '', 'confidence': 0.0, 'bounding_boxes': [], 'metadata': {'error': 'ocr_failed'}}
+            metadata = {
+                'error': 'ocr_failed',
+                'tesseract_cmd': cls._get_tesseract_cmd(),
+                'tesseract_version': cls._probe_tesseract_version(),
+                'exception': str(exc),
+            }
+            if hasattr(exc, 'message'):
+                metadata['exception_message'] = getattr(exc, 'message')
+            return {
+                'extracted_text': '',
+                'confidence': 0.0,
+                'bounding_boxes': [],
+                'metadata': metadata,
+            }
