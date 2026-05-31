@@ -201,3 +201,18 @@ class OCRService:
                 'bounding_boxes': [],
                 'metadata': metadata,
             }
+
+
+def analyze_image_base64(data_url: str, lang: str = 'eng', preprocess: bool = True) -> Dict[str, Any]:
+    """Compatibility wrapper for older tests: analyze image from a data URL base64.
+
+    Delegates to `OCRService.extract_from_base64` and adds legacy keys `text` and `blocks`.
+    """
+    result = OCRService.extract_from_base64(data_url, lang=lang, preprocess=preprocess)
+    # Add legacy fields expected by older tests
+    result.setdefault('extracted_text', result.get('extracted_text', ''))
+    result.setdefault('bounding_boxes', result.get('bounding_boxes', []))
+    # legacy names
+    result['text'] = result.get('extracted_text', '')
+    result['blocks'] = result.get('bounding_boxes', [])
+    return result

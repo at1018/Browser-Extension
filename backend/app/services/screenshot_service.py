@@ -1,9 +1,9 @@
 from typing import List
 from uuid import uuid4
 
+from app.router.model_router import ModelRouter
 from app.schemas import ScreenshotUploadRequest, ScreenshotAnalyzeRequest, ScreenshotAnalyzeResponse, ScreenshotRecord
 from app.services.analysis_service import AnalysisService
-from app.providers.base_provider import BaseProvider
 
 class ScreenshotService:
     _screenshots: List[ScreenshotRecord] = []
@@ -22,8 +22,8 @@ class ScreenshotService:
         return record
 
     @classmethod
-    async def analyze_screenshot(cls, payload: ScreenshotAnalyzeRequest, provider: BaseProvider) -> ScreenshotAnalyzeResponse:
-        result = await AnalysisService.run_analysis(payload, provider)
+    async def analyze_screenshot(cls, payload: ScreenshotAnalyzeRequest, router: ModelRouter) -> ScreenshotAnalyzeResponse:
+        result = await AnalysisService.run_analysis(payload, router)
         cls._screenshots.append(
             ScreenshotRecord(
                 screenshot_id=str(uuid4()),

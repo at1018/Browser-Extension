@@ -18,19 +18,3 @@ class OllamaProvider(BaseProvider):
 
     async def health_check(self) -> Dict[str, Any]:
         return {'ok': False, 'provider': 'ollama', 'note': 'not_implemented'}
-"""Ollama provider adapter stub."""
-
-from .base_provider import BaseProvider
-
-class OllamaProvider(BaseProvider):
-    def analyze_image(self, image_data: bytes, metadata: dict) -> dict:
-        pass
-
-    def generate_response(self, prompt: str, context: dict) -> dict:
-        pass
-
-    def classify_intent(self, content: dict) -> dict:
-        pass
-
-    def health_check(self) -> dict:
-        pass

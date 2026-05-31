@@ -33,6 +33,7 @@ class GeminiProvider(BaseProvider):
         self.timeout_seconds = timeout_seconds
         self.retry_attempts = retry_attempts
         self.retry_backoff = retry_backoff
+        super().__init__('gemini', ['analyze_image', 'generate_response', 'classify_intent'])
 
         if self.api_key and GENAI_AVAILABLE:
             try:
