@@ -20,6 +20,22 @@ class PersonaEngine:
             min_confidence=settings.PERSONA_MIN_CONFIDENCE,
         )
 
+    def _normalize_objects(self, objects: List[Any]) -> List[Dict[str, Any]]:
+        normalized = []
+        for obj in objects or []:
+            if isinstance(obj, dict):
+                normalized.append({
+                    'label': obj.get('label') or obj.get('name') or str(obj),
+                    'box_2d': obj.get('box_2d', []),
+                })
+            elif isinstance(obj, str):
+                normalized.append({'label': obj, 'box_2d': []})
+            elif hasattr(obj, 'label'):
+                normalized.append({'label': getattr(obj, 'label', ''), 'box_2d': getattr(obj, 'box_2d', [])})
+            else:
+                normalized.append({'label': str(obj), 'box_2d': []})
+        return normalized
+
     def create_context(
         self,
         ocr_result: Dict[str, Any],
@@ -30,7 +46,7 @@ class PersonaEngine:
         ocr_text = ocr_result.get('extracted_text', '') or ''
         caption = provider_result.get('result', {}).get('caption') if provider_result else ''
         labels = provider_result.get('result', {}).get('labels', []) if provider_result else []
-        objects = provider_result.get('result', {}).get('objects', []) if provider_result else []
+        objects = self._normalize_objects(provider_result.get('result', {}).get('objects', []) if provider_result else [])
         provider_reasoning = provider_result.get('result', {}).get('reasoning', '') if provider_result else ''
         intent = intent_info.get('result', {}).get('intent') if intent_info else ''
 
@@ -61,10 +77,18 @@ class PersonaEngine:
 
         fallback_persona = request_persona or 'unknown'
         final_persona = fallback_persona
+        decision = 'fallback_to_request_persona'
         if result.confidence >= self.min_confidence and result.persona != 'unknown':
             final_persona = result.persona
+            decision = 'selected_by_confidence'
 
         definition = get_persona_definition(final_persona)
+        metadata = result.metadata.copy() if isinstance(result.metadata, dict) else {}
+        metadata.update({
+            'threshold': self.min_confidence,
+            'decision': decision,
+            'resolved_persona': final_persona,
+        })
 
         return {
             'persona': final_persona,
@@ -72,6 +96,6 @@ class PersonaEngine:
             'reasoning': result.reasoning,
             'traits': definition.traits,
             'signals': [signal.dict() for signal in result.signals],
-            'metadata': result.metadata,
+            'metadata': metadata,
             'source': 'persona_engine',
         }

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     PERSONA_MIN_CONFIDENCE: float = 0.65
     PERSONA_RULE_WEIGHT: float = 0.6
     PERSONA_LLM_WEIGHT: float = 0.4
+    PERSONA_INTENT_WEIGHT: float = 2.0
 
     model_config = ConfigDict(env_file='.env', case_sensitive=True)
 

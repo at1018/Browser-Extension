@@ -25,12 +25,14 @@ class PersonaResult(BaseModel):
     signals: List[PersonaSignal]
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
-
+class DetectObject(BaseModel):
+    label: str
+    box_2d: list
 class PersonaContext(BaseModel):
     ocr_text: str
     caption: Optional[str]
     labels: List[str]
-    objects: List[str]
+    objects: List[DetectObject]
     intent: Optional[str]
     provider_reasoning: Optional[str]
     historical_meta: Dict[str, Any] = Field(default_factory=dict)
