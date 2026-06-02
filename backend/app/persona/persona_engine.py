@@ -57,6 +57,8 @@ class PersonaEngine:
             objects=objects,
             intent=intent,
             provider_reasoning=provider_reasoning,
+            ocr_confidence=float(ocr_result.get('confidence', 0.0) if ocr_result else 0.0),
+            provider_success=bool(provider_result and provider_result.get('result')),
             historical_meta=historical_meta or {},
         )
 

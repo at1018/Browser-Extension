@@ -35,4 +35,6 @@ class PersonaContext(BaseModel):
     objects: List[DetectObject]
     intent: Optional[str]
     provider_reasoning: Optional[str]
+    ocr_confidence: float = 0.0
+    provider_success: bool = False
     historical_meta: Dict[str, Any] = Field(default_factory=dict)

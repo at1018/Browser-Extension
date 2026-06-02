@@ -7,4 +7,5 @@ pillow
 pytesseract
 opencv-python
 numpy
+python-multipart
 google-generativeai
